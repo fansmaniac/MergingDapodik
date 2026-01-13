@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Merging Data Excel Dapodik</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            transition: all 0.3s ease;
+        }
+        .drop-zone.dragover {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans">
+
+    <div class="max-w-4xl mx-auto py-12 px-4">
+        <div class="bg-white rounded-2xl shadow-xl p-8">
+            <div class="text-center mb-10">
+                <h1 class="text-3xl font-bold text-slate-800 mb-2">Merging Data Excel Dapodik</h1>
+                <p class="text-slate-500">Gabungkan dokumen Dapodik menggunakan <span class="font-semibold text-blue-600">Kolom A</span> sebagai Primary Key.</p>
+            </div>
+
+            <!-- Area Unggah -->
+            <div id="dropZone" class="drop-zone rounded-xl p-10 text-center cursor-pointer mb-6">
+                <input type="file" id="fileInput" multiple accept=".xlsx, .xls, .csv" class="hidden">
+                <div class="flex flex-col items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-slate-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p class="text-lg font-medium text-slate-700">Klik untuk pilih file atau seret file ke sini</p>
+                    <p class="text-sm text-slate-400 mt-1">Mendukung format .xlsx, .xls, dan .csv</p>
+                </div>
+            </div>
+
+            <!-- Daftar File -->
+            <div id="fileListContainer" class="hidden mb-8">
+                <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">File Terpilih:</h3>
+                <ul id="fileList" class="space-y-2"></ul>
+            </div>
+
+            <!-- Tombol Aksi -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button id="processBtn" disabled class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-200">
+                    Proses Penggabungan Data
+                </button>
+                <button id="downloadBtn" disabled class="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-200">
+                    Unduh Hasil (.xlsx)
+                </button>
+            </div>
+            
+            <div class="text-center mt-4">
+                <button id="clearBtn" class="text-slate-400 hover:text-red-500 text-sm font-medium transition-colors">
+                    Hapus Semua File & Reset
+                </button>
+            </div>
+
+            <!-- Indikator Status -->
+            <div id="statusMessage" class="mt-6 hidden p-4 rounded-lg text-sm text-center"></div>
+        </div>
+
+        <!-- Instruksi -->
+        <div class="mt-8 text-slate-500 text-sm bg-blue-50 p-6 rounded-xl border border-blue-100">
+            <h4 class="font-bold text-blue-800 mb-2 uppercase text-xs">Petunjuk Penggunaan:</h4>
+            <ul class="list-disc ml-5 space-y-1">
+                <li>Pastikan baris pertama di setiap file adalah **Header** (Judul Kolom).</li>
+                <li>**Kolom A** akan digunakan sebagai kunci utama untuk mencocokkan data antar file.</li>
+                <li>Klik tombol **Proses** terlebih dahulu. Setelah selesai, tombol **Unduh Hasil** akan menjadi aktif.</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const fileList = document.getElementById('fileList');
+        const fileListContainer = document.getElementById('fileListContainer');
+        const processBtn = document.getElementById('processBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusMessage = document.getElementById('statusMessage');
+
+        let selectedFiles = [];
+        let mergedWorkbook = null;
+
+        // UI Interactions
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        clearBtn.addEventListener('click', () => {
+            selectedFiles = [];
+            mergedWorkbook = null;
+            downloadBtn.disabled = true;
+            updateUI();
+            hideStatus();
+        });
+
+        function handleFiles(files) {
+            const newFiles = Array.from(files);
+            selectedFiles = [...selectedFiles, ...newFiles];
+            mergedWorkbook = null;
+            downloadBtn.disabled = true;
+            updateUI();
+        }
+
+        function updateUI() {
+            if (selectedFiles.length > 0) {
+                fileListContainer.classList.remove('hidden');
+                processBtn.disabled = false;
+                fileList.innerHTML = selectedFiles.map((file, index) => `
+                    <li class="flex justify-between items-center bg-slate-100 p-3 rounded-lg border border-slate-200">
+                        <span class="text-slate-700 font-medium truncate pr-4">${file.name}</span>
+                        <button onclick="removeFile(${index})" class="text-red-400 hover:text-red-600">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </li>
+                `).join('');
+            } else {
+                fileListContainer.classList.add('hidden');
+                processBtn.disabled = true;
+                fileList.innerHTML = '';
+            }
+        }
+
+        window.removeFile = function(index) {
+            selectedFiles.splice(index, 1);
+            mergedWorkbook = null;
+            downloadBtn.disabled = true;
+            updateUI();
+        };
+
+        function showStatus(msg, isError = false) {
+            statusMessage.textContent = msg;
+            statusMessage.className = `mt-6 p-4 rounded-lg text-sm text-center ${isError ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-green-100 text-green-700 border border-green-200'}`;
+            statusMessage.classList.remove('hidden');
+        }
+
+        function hideStatus() {
+            statusMessage.classList.add('hidden');
+        }
+
+        // Processing Logic
+        processBtn.addEventListener('click', async () => {
+            if (selectedFiles.length === 0) return;
+
+            processBtn.disabled = true;
+            downloadBtn.disabled = true;
+            processBtn.textContent = 'Memproses...';
+            hideStatus();
+
+            try {
+                const mergedDataMap = new Map(); 
+                const allHeaderSet = new Set();
+                let primaryKeyName = "";
+
+                for (const file of selectedFiles) {
+                    const data = await readFile(file);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                    if (jsonData.length === 0) continue;
+
+                    const currentHeaders = Object.keys(jsonData[0]);
+                    const currentPK = currentHeaders[0];
+                    if (!primaryKeyName) primaryKeyName = currentPK;
+
+                    jsonData.forEach(row => {
+                        const pkValue = row[currentPK];
+                        if (pkValue === undefined || pkValue === null || pkValue === "") return;
+
+                        if (!mergedDataMap.has(pkValue)) {
+                            mergedDataMap.set(pkValue, {});
+                        }
+
+                        const existingRecord = mergedDataMap.get(pkValue);
+                        Object.entries(row).forEach(([key, value]) => {
+                            allHeaderSet.add(key);
+                            existingRecord[key] = value;
+                        });
+                    });
+                }
+
+                if (mergedDataMap.size === 0) {
+                    throw new Error("Tidak ada data yang ditemukan atau Kolom A kosong.");
+                }
+
+                const finalHeaders = Array.from(allHeaderSet);
+                const pkIndex = finalHeaders.indexOf(primaryKeyName);
+                if (pkIndex > -1) {
+                    finalHeaders.splice(pkIndex, 1);
+                    finalHeaders.unshift(primaryKeyName);
+                }
+
+                const resultRows = Array.from(mergedDataMap.values());
+
+                // Simpan hasil ke global variable
+                const newSheet = XLSX.utils.json_to_sheet(resultRows, { header: finalHeaders });
+                mergedWorkbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(mergedWorkbook, newSheet, "Data Dapodik");
+
+                showStatus(`Proses selesai! Berhasil menggabungkan ${mergedDataMap.size} data unik. Silakan klik tombol 'Unduh Hasil'.`);
+                downloadBtn.disabled = false;
+            } catch (error) {
+                console.error(error);
+                showStatus("Terjadi kesalahan: " + error.message, true);
+            } finally {
+                processBtn.disabled = false;
+                processBtn.textContent = 'Proses Penggabungan Data';
+            }
+        });
+
+        // Download Logic
+        downloadBtn.addEventListener('click', () => {
+            if (!mergedWorkbook) return;
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+            XLSX.writeFile(mergedWorkbook, `Data_Dapodik_Gabungan_${timestamp}.xlsx`);
+        });
+
+        function readFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(new Uint8Array(e.target.result));
+                reader.onerror = (e) => reject(e);
+                reader.readAsArrayBuffer(file);
+            });
+        }
+    </script>
+</body>
+</html>
